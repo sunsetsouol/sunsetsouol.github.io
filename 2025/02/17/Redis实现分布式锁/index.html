@@ -1,0 +1,201 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="dark"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Redis实现分布式锁 | Coding Road</title><meta name="author" content="sunsetsouol"><meta name="copyright" content="sunsetsouol"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#0d0d0d"><meta name="description" content="Redis实现的分布式锁分布式锁的基本原理在集群环境下我们部署了多个tomcat，每个tomcat都有属于自己的jvm，在不同tomcat中synchronized锁的对象是自身jvm中的对象，所以synchronized锁就会失效，这个时候我们就需要分布式锁去解决这个问题 分布式锁就是足分布式系统或集群模式下多进程可见并且互斥的锁。分布式锁的核心思想就是让大家都使用同一把锁，只要大家使用的是同一">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis实现分布式锁">
+<meta property="og:url" content="http://example.com/2025/02/17/Redis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/index.html">
+<meta property="og:site_name" content="Coding Road">
+<meta property="og:description" content="Redis实现的分布式锁分布式锁的基本原理在集群环境下我们部署了多个tomcat，每个tomcat都有属于自己的jvm，在不同tomcat中synchronized锁的对象是自身jvm中的对象，所以synchronized锁就会失效，这个时候我们就需要分布式锁去解决这个问题 分布式锁就是足分布式系统或集群模式下多进程可见并且互斥的锁。分布式锁的核心思想就是让大家都使用同一把锁，只要大家使用的是同一">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://image.nickxu.me/202202230023069.jpg">
+<meta property="article:published_time" content="2025-02-17T03:45:47.000Z">
+<meta property="article:modified_time" content="2025-02-17T03:45:59.448Z">
+<meta property="article:author" content="sunsetsouol">
+<meta property="article:tag" content="小工具">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://image.nickxu.me/202202230023069.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Redis实现分布式锁",
+  "url": "http://example.com/2025/02/17/Redis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/",
+  "image": "https://image.nickxu.me/202202230023069.jpg",
+  "datePublished": "2025-02-17T03:45:47.000Z",
+  "dateModified": "2025-02-17T03:45:59.448Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "sunsetsouol",
+      "url": "http://example.com/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/img/favicon.png"><link rel="canonical" href="http://example.com/2025/02/17/Redis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: undefined,
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Redis实现分布式锁',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><meta name="generator" content="Hexo 7.3.0"></head><body><div id="sidebar"><div id="menu-mask"></div><div id="sidebar-menus"><div class="avatar-img text-center"><img src="https://qgstudio2024.oss-cn-guangzhou.aliyuncs.com/pic/202405171110049.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="site-data text-center"><a href="/archives/"><div class="headline">文章</div><div class="length-num">23</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">5</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">0</div></a></div><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-book"></i><span> 文章</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li><li><a class="site-page child" href="/todo/"><i class="fa-fw fas fa-list-alt"></i><span> ToDo</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/contact/"><i class="fa-fw fas fa-comments"></i><span> 留言板</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div></div></div><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(https://image.nickxu.me/202202230023069.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">Coding Road</span></a><a class="nav-page-title" href="/"><span class="site-name">Redis实现分布式锁</span></a></span><div id="menus"><div class="menus_items"><div class="menus_item"><a class="site-page" href="/"><i class="fa-fw fas fa-home"></i><span> 首页</span></a></div><div class="menus_item"><span class="site-page group"><i class="fa-fw fas fa-book"></i><span> 文章</span><i class="fas fa-chevron-down"></i></span><ul class="menus_item_child"><li><a class="site-page child" href="/archives/"><i class="fa-fw fas fa-archive"></i><span> 归档</span></a></li><li><a class="site-page child" href="/tags/"><i class="fa-fw fas fa-tags"></i><span> 标签</span></a></li><li><a class="site-page child" href="/categories/"><i class="fa-fw fas fa-folder-open"></i><span> 分类</span></a></li><li><a class="site-page child" href="/todo/"><i class="fa-fw fas fa-list-alt"></i><span> ToDo</span></a></li></ul></div><div class="menus_item"><a class="site-page" href="/contact/"><i class="fa-fw fas fa-comments"></i><span> 留言板</span></a></div><div class="menus_item"><a class="site-page" href="/about/"><i class="fa-fw fas fa-heart"></i><span> 关于</span></a></div></div><div id="toggle-menu"><span class="site-page"><i class="fas fa-bars fa-fw"></i></span></div></div></nav><div id="post-info"><h1 class="post-title">Redis实现分布式锁</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2025-02-17T03:45:47.000Z" title="发表于 2025-02-17 11:45:47">2025-02-17</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2025-02-17T03:45:59.448Z" title="更新于 2025-02-17 11:45:59">2025-02-17</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="Redis实现的分布式锁"><a href="#Redis实现的分布式锁" class="headerlink" title="Redis实现的分布式锁"></a>Redis实现的分布式锁</h1><h2 id="分布式锁的基本原理"><a href="#分布式锁的基本原理" class="headerlink" title="分布式锁的基本原理"></a>分布式锁的基本原理</h2><p>在集群环境下我们部署了多个tomcat，每个tomcat都有属于自己的jvm，在不同tomcat中synchronized锁的对象是自身jvm中的对象，所以synchronized锁就会失效，这个时候我们就需要分布式锁去解决这个问题</p>
+<p>分布式锁就是足分布式系统或集群模式下多进程可见并且互斥的锁。分布式锁的核心思想就是让大家都使用同一把锁，只要大家使用的是同一把锁，那么我们就能锁住线程，不让线程进行，让程序串行执行，这就是分布式锁的核心思路</p>
+<h2 id="分布式锁应该满足的条件"><a href="#分布式锁应该满足的条件" class="headerlink" title="分布式锁应该满足的条件"></a>分布式锁应该满足的条件</h2><p>可见性：多个线程都能看到相同的结果，注意：这个地方说的可见性并不是并发编程中指的内存可见性，只是说多个进程之间都能感知到变化的意思</p>
+<p>互斥：互斥是分布式锁的最基本的条件，使得程序串行执行</p>
+<p>高可用：程序不易崩溃，时时刻刻都保证较高的可用性</p>
+<p>高性能：由于加锁本身就让性能降低，所有对于分布式锁本身需要他就较高的加锁性能和释放锁性能</p>
+<p>安全性：安全也是程序中必不可少的一环</p>
+<p>Redis实现的分布式锁</p>
+<h2 id="Redis实现分布式锁"><a href="#Redis实现分布式锁" class="headerlink" title="Redis实现分布式锁"></a>Redis实现分布式锁</h2><p>redis的setNx可以保证只有一个线程可以创建key，如果已经存在key就不会再覆盖，利用这个特性我们可以实现分布式锁，只有当setNx设置锁成功的时候才代表线程竞争锁成功，否则竞争锁失败，为了防止死锁我们通常会为锁设置一个有效期</p>
+<h2 id="Redis分布式锁误删问题"><a href="#Redis分布式锁误删问题" class="headerlink" title="Redis分布式锁误删问题"></a>Redis分布式锁误删问题</h2><p>线程竞争锁成功后在锁到期后还没完成业务，其他线程在锁超时释放后竞争到锁，这时候原线程完成业务，将后一天线程的锁删除</p>
+<p><img src="https://sunsetsouol.oss-cn-guangzhou.aliyuncs.com/pic/202405011445160.png" alt="image-20240331095145843"></p>
+<p>解决方法：value设置为线程id，每个线程只能删除自己线程id的锁，但是还有极端情况，当线程判断锁是自己后锁过期，其他线程竞争成功后锁被删除，所以我们使用lua脚本处理redis保证原子性操作</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">-- 这里的 KEYS[1] 就是锁的key，这里的ARGV[1] 就是当前线程标示</span><br><span class="line">-- 获取锁中的标示，判断是否与当前线程标示一致</span><br><span class="line">if (redis.call(&#x27;GET&#x27;, KEYS[1]) == ARGV[1]) then</span><br><span class="line">  -- 一致，则删除锁</span><br><span class="line">  return redis.call(&#x27;DEL&#x27;, KEYS[1])</span><br><span class="line">end</span><br><span class="line">-- 不一致，则直接返回</span><br><span class="line">return 0</span><br></pre></td></tr></table></figure>
+
+<h2 id="基于setnx实现的分布式锁存在的问题"><a href="#基于setnx实现的分布式锁存在的问题" class="headerlink" title="基于setnx实现的分布式锁存在的问题"></a>基于setnx实现的分布式锁存在的问题</h2><p><strong>重入问题</strong>：重入问题是指 获得锁的线程可以再次进入到相同的锁的代码块中，可重入锁的意义在于防止死锁，比如HashTable这样的代码中，他的方法都是使用synchronized修饰的，假如他在一个方法内，调用另一个方法，那么此时如果是不可重入的，不就死锁了吗？所以可重入锁他的主要意义是防止死锁，我们的synchronized和Lock锁都是可重入的。</p>
+<p><strong>不可重试</strong>：是指目前的分布式只能尝试一次，我们认为合理的情况是：当线程在获得锁失败后，他应该能再次尝试获得锁。</p>
+<p>**超时释放：**我们在加锁时增加了过期时间，这样的我们可以防止死锁，但是如果卡顿的时间超长，虽然我们采用了lua表达式防止删锁的时候，误删别人的锁，但是毕竟没有锁住，有安全隐患</p>
+<p><strong>主从一致性：</strong> 如果Regis提供了主从集群，当我们向集群写数据时，主机需要异步的将数据同步给从机，而万一在同步过去之前，主机宕机了，就会出现死锁问题。</p>
+<p>这个时候我们可以使用redission解决</p>
+<h2 id="Redission"><a href="#Redission" class="headerlink" title="Redission"></a>Redission</h2><h3 id="使用"><a href="#使用" class="headerlink" title="使用"></a>使用</h3><p>引入依赖</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&lt;dependency&gt;</span><br><span class="line">	&lt;groupId&gt;org.redisson&lt;/groupId&gt;</span><br><span class="line">	&lt;artifactId&gt;redisson&lt;/artifactId&gt;</span><br><span class="line">	&lt;version&gt;3.13.6&lt;/version&gt;</span><br><span class="line">&lt;/dependency&gt;</span><br></pre></td></tr></table></figure>
+
+<p>配置类</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">@Configuration</span><br><span class="line">public class RedissonConfig &#123;</span><br><span class="line"></span><br><span class="line">    @Bean</span><br><span class="line">    public RedissonClient redissonClient()&#123;</span><br><span class="line">        // 配置</span><br><span class="line">        Config config = new Config();</span><br><span class="line">        config.useSingleServer().setAddress(&quot;redis://192.168.150.101:6379&quot;)</span><br><span class="line">            .setPassword(&quot;123321&quot;);</span><br><span class="line">        // 创建RedissonClient对象</span><br><span class="line">        return Redisson.create(config);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>使用</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">@Resource</span><br><span class="line">private RedissionClient redissonClient;</span><br><span class="line"></span><br><span class="line">@Test</span><br><span class="line">void testRedisson() throws Exception&#123;</span><br><span class="line">    //获取锁(可重入)，指定锁的名称</span><br><span class="line">    RLock lock = redissonClient.getLock(&quot;anyLock&quot;);</span><br><span class="line">    //尝试获取锁，参数分别是：获取锁的最大等待时间(期间会重试)，锁自动释放时间，时间单位</span><br><span class="line">    boolean isLock = lock.tryLock(1,10,TimeUnit.SECONDS);</span><br><span class="line">    //判断获取锁成功</span><br><span class="line">    if(isLock)&#123;</span><br><span class="line">        try&#123;</span><br><span class="line">            System.out.println(&quot;执行业务&quot;);          </span><br><span class="line">        &#125;finally&#123;</span><br><span class="line">            //释放锁</span><br><span class="line">            lock.unlock();</span><br><span class="line">        &#125;</span><br><span class="line">        </span><br><span class="line">    &#125;    </span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="可重入性"><a href="#可重入性" class="headerlink" title="可重入性"></a>可重入性</h3><p>redission使用hash结构表示锁，大key表示锁是否存在，小key表示当前这把锁被哪个线程持有</p>
+<h3 id="锁重试和WatchDog机制"><a href="#锁重试和WatchDog机制" class="headerlink" title="锁重试和WatchDog机制"></a>锁重试和WatchDog机制</h3><p>通过追溯tryLock的源码可以看到，redission尝试获取锁也是使用lua脚本进行调用</p>
+<p><img src="https://sunsetsouol.oss-cn-guangzhou.aliyuncs.com/pic/202405011446906.png" alt="img"></p>
+<p><img src="https://sunsetsouol.oss-cn-guangzhou.aliyuncs.com/pic/202405011446850.png" alt="img"></p>
+<p>阅读上述代码，我们发现，redission在获取锁失败后，会订阅锁释放的信号，并且在等待时间超过限制后主动释放并且取消订阅，如果第二次还是没有成功获取锁，那么将进入死循环，直到成功获取锁对象或等待时间超时</p>
+<p><img src="https://sunsetsouol.oss-cn-guangzhou.aliyuncs.com/pic/202405011446244.png" alt="img"></p>
+<p>而为了防止线程阻塞导致的超时释放，通过追踪源码我们发现在线程成功竞争到锁后会提交一个回调函数</p>
+<p><img src="https://sunsetsouol.oss-cn-guangzhou.aliyuncs.com/pic/202405011446597.png" alt="img"></p>
+<p><img src="https://sunsetsouol.oss-cn-guangzhou.aliyuncs.com/pic/202405011446910.png" alt="img"></p>
+<p>在回调函数中，每隔watchDog默认锁释放时间的三分之一，就会刷新锁的释放时间，只要线程没有宕机，那么锁就会一直刷新</p>
+<h3 id="主从一致性"><a href="#主从一致性" class="headerlink" title="主从一致性"></a>主从一致性</h3><p>为了提高redis的可用性，我们会搭建集群，如果主机没来得及将锁同步给从机就宕机了，那么下一个主节点选出来后，就会造成数据不一致的情况，为了解决这个问题redission提出了MultiLock锁，不再使用主从，只有全部节点的锁都获取成功才算获取锁成功</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="http://example.com">sunsetsouol</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="http://example.com/2025/02/17/Redis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/">http://example.com/2025/02/17/Redis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="http://example.com" target="_blank">Coding Road</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/%E5%B0%8F%E5%B7%A5%E5%85%B7/">小工具</a></div><div class="post-share"><div class="social-share" data-image="https://image.nickxu.me/202202230023069.jpg" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2025/02/17/IDEA%E8%BF%9C%E7%A8%8BDEBUG/" title="IDEA远程DEBUG"><img class="cover" src="https://image.nickxu.me/202202230023069.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of previous post"><div class="info"><div class="info-1"><div class="info-item-1">上一篇</div><div class="info-item-2">IDEA远程DEBUG</div></div><div class="info-2"><div class="info-item-1">IDEA远程DEBUG首先在服务端启动命令加上 1234# jdk8  address可以是任意开放的端口-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=33211# jdk9之后-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:33211  dockerfile的启动命令变成 1ENTRYPOINT java -jar -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=33211 chatspace-user-1.0.jar   然后我们需要开启docker远程访问功能 123456789vim /usr/lib/systemd/system/docker.service# 注释掉上面的一句，然后添加下面一句，记住9527的端口，防火墙、安全组都需要开启！！# ExecStart=/usr/bin/dockerd -H fd://...</div></div></div></a><a class="pagination-related" href="/2025/02/17/MP%E5%AE%9E%E7%8E%B0%E5%A4%9A%E6%95%B0%E6%8D%AE%E6%BA%90/" title="MP实现多数据源"><img class="cover" src="https://image.nickxu.me/202202230023069.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">MP实现多数据源</div></div><div class="info-2"><div class="info-item-1">SpringBoot整合MybatisPlus实现多数据源背景项目中需要对数据进行冷热分离，根据数据的一些特性从热库中迁移到冷库中，查找数据时如果热库找不到需要从冷库中查找，这个时候我们希望在程序中能够使用双数据源 引入依赖123456&lt;!--多数据源--&gt;&lt;dependency&gt;    &lt;groupId&gt;com.baomidou&lt;/groupId&gt;    &lt;artifactId&gt;dynamic-datasource-spring-boot-starter&lt;/artifactId&gt;    &lt;version&gt;3.6.1&lt;/version&gt;&lt;/dependency&gt;  配置文件配置多数据源1234567891011121314151617181920212223server:  port: 8000spring:  datasource:    dynamic:      primary: hot# 配置默认数据库,及没有注解指定时走的数据库     ...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2025/02/17/IDEA%E8%BF%9C%E7%A8%8BDEBUG/" title="IDEA远程DEBUG"><img class="cover" src="https://image.nickxu.me/202202230023069.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-02-17</div><div class="info-item-2">IDEA远程DEBUG</div></div><div class="info-2"><div class="info-item-1">IDEA远程DEBUG首先在服务端启动命令加上 1234# jdk8  address可以是任意开放的端口-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=33211# jdk9之后-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:33211  dockerfile的启动命令变成 1ENTRYPOINT java -jar -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=33211 chatspace-user-1.0.jar   然后我们需要开启docker远程访问功能 123456789vim /usr/lib/systemd/system/docker.service# 注释掉上面的一句，然后添加下面一句，记住9527的端口，防火墙、安全组都需要开启！！# ExecStart=/usr/bin/dockerd -H fd://...</div></div></div></a><a class="pagination-related" href="/2025/02/17/MP%E5%AE%9E%E7%8E%B0%E5%A4%9A%E6%95%B0%E6%8D%AE%E6%BA%90/" title="MP实现多数据源"><img class="cover" src="https://image.nickxu.me/202202230023069.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-02-17</div><div class="info-item-2">MP实现多数据源</div></div><div class="info-2"><div class="info-item-1">SpringBoot整合MybatisPlus实现多数据源背景项目中需要对数据进行冷热分离，根据数据的一些特性从热库中迁移到冷库中，查找数据时如果热库找不到需要从冷库中查找，这个时候我们希望在程序中能够使用双数据源 引入依赖123456&lt;!--多数据源--&gt;&lt;dependency&gt;    &lt;groupId&gt;com.baomidou&lt;/groupId&gt;    &lt;artifactId&gt;dynamic-datasource-spring-boot-starter&lt;/artifactId&gt;    &lt;version&gt;3.6.1&lt;/version&gt;&lt;/dependency&gt;  配置文件配置多数据源1234567891011121314151617181920212223server:  port: 8000spring:  datasource:    dynamic:      primary: hot# 配置默认数据库,及没有注解指定时走的数据库     ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="https://qgstudio2024.oss-cn-guangzhou.aliyuncs.com/pic/202405171110049.jpg" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">sunsetsouol</div><div class="author-info-description"></div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">23</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">5</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/xxxxxx"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">This is my Blog</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Redis%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81"><span class="toc-number">1.</span> <span class="toc-text">Redis实现的分布式锁</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E7%9A%84%E5%9F%BA%E6%9C%AC%E5%8E%9F%E7%90%86"><span class="toc-number">1.1.</span> <span class="toc-text">分布式锁的基本原理</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%BA%94%E8%AF%A5%E6%BB%A1%E8%B6%B3%E7%9A%84%E6%9D%A1%E4%BB%B6"><span class="toc-number">1.2.</span> <span class="toc-text">分布式锁应该满足的条件</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Redis%E5%AE%9E%E7%8E%B0%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81"><span class="toc-number">1.3.</span> <span class="toc-text">Redis实现分布式锁</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Redis%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E8%AF%AF%E5%88%A0%E9%97%AE%E9%A2%98"><span class="toc-number">1.4.</span> <span class="toc-text">Redis分布式锁误删问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9F%BA%E4%BA%8Esetnx%E5%AE%9E%E7%8E%B0%E7%9A%84%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81%E5%AD%98%E5%9C%A8%E7%9A%84%E9%97%AE%E9%A2%98"><span class="toc-number">1.5.</span> <span class="toc-text">基于setnx实现的分布式锁存在的问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#Redission"><span class="toc-number">1.6.</span> <span class="toc-text">Redission</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BD%BF%E7%94%A8"><span class="toc-number">1.6.1.</span> <span class="toc-text">使用</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8F%AF%E9%87%8D%E5%85%A5%E6%80%A7"><span class="toc-number">1.6.2.</span> <span class="toc-text">可重入性</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%94%81%E9%87%8D%E8%AF%95%E5%92%8CWatchDog%E6%9C%BA%E5%88%B6"><span class="toc-number">1.6.3.</span> <span class="toc-text">锁重试和WatchDog机制</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%BB%E4%BB%8E%E4%B8%80%E8%87%B4%E6%80%A7"><span class="toc-number">1.6.4.</span> <span class="toc-text">主从一致性</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/02/17/%E8%A3%85%E9%A5%B0%E5%99%A8%E6%A8%A1%E5%BC%8F/" title="装饰器模式">装饰器模式</a><time datetime="2025-02-17T03:47:47.000Z" title="发表于 2025-02-17 11:47:47">2025-02-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/02/17/%E5%8E%9F%E5%9E%8B%E8%AE%BE%E8%AE%A1%E6%A8%A1%E5%BC%8F/" title="原型设计模式">原型设计模式</a><time datetime="2025-02-17T03:47:42.000Z" title="发表于 2025-02-17 11:47:42">2025-02-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/02/17/%E4%BA%AB%E5%85%83%E6%A8%A1%E5%BC%8F/" title="享元模式">享元模式</a><time datetime="2025-02-17T03:47:33.000Z" title="发表于 2025-02-17 11:47:33">2025-02-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/02/17/%E9%80%82%E9%85%8D%E5%99%A8%E6%A8%A1%E5%BC%8F/" title="适配器模式">适配器模式</a><time datetime="2025-02-17T03:47:24.000Z" title="发表于 2025-02-17 11:47:24">2025-02-17</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/02/17/%E5%BB%BA%E9%80%A0%E8%80%85%E6%A8%A1%E5%BC%8F/" title="建造者模式">建造者模式</a><time datetime="2025-02-17T03:47:19.000Z" title="发表于 2025-02-17 11:47:19">2025-02-17</time></div></div></div></div></div></div></main><footer id="footer"><div id="footer-wrap"><div class="copyright">&copy;2019 - 2025 By sunsetsouol</div><div class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.3</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><div class="js-pjax"></div><script defer="defer" id="ribbon" src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/dist/canvas-ribbon.min.js" size="150" alpha="0.6" zIndex="-1" mobile="false" data-click="false"></script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script></div></body></html>
